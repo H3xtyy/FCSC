@@ -1,8 +1,13 @@
 package me.gracu;
 
 import com.google.gson.*;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -17,15 +22,18 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+import java.awt.*;
 import java.io.*;
 import java.util.Properties;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.CompletableFuture;
 
 public class Main extends ListenerAdapter {
     private final String channelId;
     private final int checkInterval;
     private final int playerThreshold;
+    private Message sentMessage;
 
     public static void main(String[] args) throws IOException {
         Properties properties = loadProperties();
@@ -35,7 +43,7 @@ public class Main extends ListenerAdapter {
         int playerThreshold = Integer.parseInt(properties.getProperty("player_threshold"));
 
         JDABuilder.createDefault(token)
-                .enableIntents(GatewayIntent.GUILD_MESSAGES)
+                .enableIntents(GatewayIntent.GUILD_MESSAGES, GatewayIntent.MESSAGE_CONTENT)
                 .disableCache(CacheFlag.VOICE_STATE, CacheFlag.EMOJI)
                 .addEventListeners(new Main(channelId, checkInterval, playerThreshold))
                 .build();
@@ -82,9 +90,17 @@ public class Main extends ListenerAdapter {
             public void run() {
                 try {
                     JsonObject json = getServerData();
-                    if (getPlayerCount(json) >= playerThreshold) {
-                        String message = generateMessage(json);
-                        sendMessage(jda, channelId, message);
+                    int playerCount = getPlayerCount(json);
+                    MessageEmbed message = generateMessage(json);
+                    if (playerCount >= playerThreshold) {
+                        if (sentMessage == null) {
+                            sentMessage = sendMessage(jda, channelId, message);
+                        } else {
+                            editMessage(sentMessage, message);
+                        }
+                    } else if (sentMessage != null) {
+                        deleteMessage(sentMessage);
+                        sentMessage = null;
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -166,29 +182,64 @@ public class Main extends ListenerAdapter {
         return playerCount;
     }
 
-    private String generateMessage(JsonObject json) {
-        StringBuilder message = new StringBuilder();
+    private MessageEmbed generateMessage(JsonObject json) {
+        EmbedBuilder embedBuilder = new EmbedBuilder();
         JsonArray servers = json.getAsJsonArray("servers");
+
         for (JsonElement element : servers) {
             JsonObject server = element.getAsJsonObject();
             String players = server.get("players").getAsString();
             String[] parts = players.split("/");
+
             if (parts.length == 2) {
                 int currentPlayers = Integer.parseInt(parts[0].trim());
+
                 if (currentPlayers >= playerThreshold) {
-                    message.append("There are ").append(currentPlayers).append(" players on ").append(server.get("name").getAsString()).append(".\n");
+                    embedBuilder.setTitle("Come play with us! :video_game:");
+                    embedBuilder.addField("Server: " + server.get("name").getAsString(), "Current Players: " + currentPlayers, false);
                 }
             }
         }
-        return message.toString();
+
+        embedBuilder.setColor(Color.ORANGE);
+        embedBuilder.setThumbnail("https://i.imgur.com/KeFpOkS.png");
+
+        return embedBuilder.build();
+    }
+
+    private Message sendMessage(JDA jda, String channelId, MessageEmbed message) {
+        CompletableFuture<Message> future = new CompletableFuture<>();
+        jda.getTextChannelById(channelId).sendMessageEmbeds(message).queue(future::complete);
+        return future.join();
     }
 
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
-        System.out.println(event.getMessage().getContentDisplay());
+        String messageContent = event.getMessage().getContentDisplay();
+
+        if (messageContent.equalsIgnoreCase("/fearbotstop")) {
+            Member member = event.getMember();
+            if (member != null && member.hasPermission(Permission.ADMINISTRATOR)) {
+                event.getMessage().delete().queue();
+                shutdownBot(event.getJDA());
+            } else {
+                event.getMessage().delete().queue();
+            }
+        }
     }
 
-    private void sendMessage(JDA jda, String channelId, String message) {
-        jda.getTextChannelById(channelId).sendMessage(message).queue();
+    private void editMessage(Message message, MessageEmbed updatedMessage) {
+        message.editMessageEmbeds(updatedMessage).queue();
+    }
+
+    private void deleteMessage(Message message) {
+        message.delete().queue();
+    }
+
+    private void shutdownBot(JDA jda) {
+        if (sentMessage != null) {
+            deleteMessage(sentMessage);
+        }
+        jda.shutdown();
     }
 }
