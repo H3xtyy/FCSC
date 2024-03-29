@@ -197,13 +197,11 @@ public class Main extends ListenerAdapter {
                 if (currentPlayers >= playerThreshold) {
                     embedBuilder.setTitle("Come play with us! :video_game:");
                     embedBuilder.addField("Server: " + server.get("name").getAsString(), "Current Players: " + currentPlayers, false);
+                    embedBuilder.setColor(Color.ORANGE);
+                    embedBuilder.setThumbnail("https://i.imgur.com/KeFpOkS.png");
                 }
             }
         }
-
-        embedBuilder.setColor(Color.ORANGE);
-        embedBuilder.setThumbnail("https://i.imgur.com/KeFpOkS.png");
-
         return embedBuilder.build();
     }
 
