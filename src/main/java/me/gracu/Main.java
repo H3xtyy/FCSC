@@ -92,7 +92,7 @@ public class Main extends ListenerAdapter {
                     JsonObject json = getServerData();
                     int playerCount = getPlayerCount(json);
                     MessageEmbed message = generateMessage(json);
-                    if (playerCount >= playerThreshold) {
+                    if (message != null && playerCount >= playerThreshold) {
                         if (sentMessage == null) {
                             sentMessage = sendMessage(jda, channelId, message);
                         } else {
@@ -162,6 +162,11 @@ public class Main extends ListenerAdapter {
         return json;
     }
 
+    private String[] parsePlayersCount(JsonObject server) {
+        String players = server.get("players").getAsString();
+        return players.split("/");
+    }
+
     private int getPlayerCount(JsonObject json) {
         if (!json.has("servers")) {
             System.err.println("No 'servers' key found in JSON data.");
@@ -172,8 +177,7 @@ public class Main extends ListenerAdapter {
         int playerCount = 0;
         for (JsonElement element : servers) {
             JsonObject server = element.getAsJsonObject();
-            String players = server.get("players").getAsString();
-            String[] parts = players.split("/");
+            String[] parts = parsePlayersCount(server);
             if (parts.length == 2) {
                 int currentPlayers = Integer.parseInt(parts[0].trim());
                 playerCount += currentPlayers;
@@ -185,24 +189,40 @@ public class Main extends ListenerAdapter {
     private MessageEmbed generateMessage(JsonObject json) {
         EmbedBuilder embedBuilder = new EmbedBuilder();
         JsonArray servers = json.getAsJsonArray("servers");
+        boolean hasValidServers = false;
+
+        StringBuilder serverNames = new StringBuilder();
+        StringBuilder playerCounts = new StringBuilder();
 
         for (JsonElement element : servers) {
             JsonObject server = element.getAsJsonObject();
-            String players = server.get("players").getAsString();
-            String[] parts = players.split("/");
+            String[] parts = parsePlayersCount(server);
 
             if (parts.length == 2) {
                 int currentPlayers = Integer.parseInt(parts[0].trim());
 
                 if (currentPlayers >= playerThreshold) {
-                    embedBuilder.setTitle("Come play with us! :video_game:");
-                    embedBuilder.addField("Server: " + server.get("name").getAsString(), "Current Players: " + currentPlayers, false);
-                    embedBuilder.setColor(Color.ORANGE);
-                    embedBuilder.setThumbnail("https://i.imgur.com/KeFpOkS.png");
+                    hasValidServers = true;
+                    if (!serverNames.isEmpty()) {
+                        serverNames.append("\n");
+                        playerCounts.append("\n");
+                    }
+                    serverNames.append(server.get("name").getAsString());
+                    playerCounts.append(parts[0].trim()).append("/").append(parts[1].trim());
                 }
             }
         }
-        return embedBuilder.build();
+
+        if (hasValidServers) {
+            embedBuilder.setTitle("Come play with us! :video_game:");
+            embedBuilder.addField("Servers:", serverNames.toString(), true);
+            embedBuilder.addField("Players:", playerCounts.toString(), true);
+            embedBuilder.setColor(Color.ORANGE);
+            embedBuilder.setThumbnail("https://i.imgur.com/KeFpOkS.png");
+            return embedBuilder.build();
+        } else {
+            return null;
+        }
     }
 
     private Message sendMessage(JDA jda, String channelId, MessageEmbed message) {
